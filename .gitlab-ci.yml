@@ -1,0 +1,120 @@
+# GitLab CI/CD Pipeline pour SpotNow
+# Stages: type-check → lint → build → deploy
+#
+# Ce pipeline vérifie le code avant chaque déploiement :
+# 1. Type checking TypeScript
+# 2. Linting ESLint
+# 3. Build Next.js (vérifie que tout compile)
+# 4. Deploy (optionnel si vous utilisez Vercel)
+
+stages:
+  - type-check
+  - lint
+  - build
+  - deploy
+
+# Variables globales
+variables:
+  NODE_VERSION: "20"
+  CACHE_KEY: ${CI_COMMIT_REF_SLUG}
+
+# Cache pour accélérer les builds
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - node_modules/
+    - .next/cache/
+
+# Image Node.js
+image: node:${NODE_VERSION}-alpine
+
+# Installation des dépendances (job réutilisable)
+.before_script: &before_script
+  - echo "📦 Installing dependencies..."
+  - npm ci --prefer-offline --no-audit
+  - echo "✅ Dependencies installed"
+
+# Stage 1: Type Checking
+type-check:
+  stage: type-check
+  <<: *before_script
+  script:
+    - echo "🔍 Running TypeScript type checking..."
+    - npm run type-check
+    - echo "✅ Type checking passed!"
+  artifacts:
+    when: on_failure
+    paths:
+      - "**/*.tsbuildinfo"
+    expire_in: 1 week
+  allow_failure: false
+  only:
+    - merge_requests
+    - main
+    - develop
+    - branches
+
+# Stage 2: Linting
+lint:
+  stage: lint
+  <<: *before_script
+  script:
+    - echo "🔍 Running ESLint..."
+    - npm run lint
+    - echo "✅ Linting passed!"
+  artifacts:
+    when: on_failure
+    reports:
+      junit: eslint-report.xml
+    expire_in: 1 week
+  allow_failure: false
+  only:
+    - merge_requests
+    - main
+    - develop
+    - branches
+
+# Stage 3: Build
+build:
+  stage: build
+  <<: *before_script
+  script:
+    - echo "🏗️ Building Next.js application..."
+    - npm run build
+    - echo "✅ Build successful!"
+  artifacts:
+    paths:
+      - .next/
+    expire_in: 1 hour
+  allow_failure: false
+  only:
+    - merge_requests
+    - main
+    - develop
+    - branches
+  # Ne build que si type-check et lint passent
+  needs:
+    - type-check
+    - lint
+
+# Stage 4: Deploy (optionnel)
+# Note: Si vous utilisez Vercel, ce stage n'est pas nécessaire
+# car Vercel se connecte directement à votre repo GitLab
+# et déploie automatiquement sur push vers main
+deploy:
+  stage: deploy
+  image: alpine:latest
+  script:
+    - echo "🚀 Deployment stage"
+    - echo "ℹ️  If using Vercel, deployments happen automatically"
+    - echo "ℹ️  Vercel connects to GitLab and deploys on push to main"
+    - echo "✅ Deployment configuration complete"
+  environment:
+    name: production
+    url: https://your-domain.vercel.app
+  only:
+    - main
+  when: manual # Déploiement manuel pour sécurité
+  needs:
+    - build
+
